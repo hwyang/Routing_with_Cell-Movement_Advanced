@@ -38,13 +38,6 @@ void BondaryBuilder::createBondaryInfo() {
   int LayerSz = InputPtr->getLayers().size();
   auto MinRoutingLayConstraint = Net->getMinRoutingLayConstraint();
 
-
-  // MinR = RowBeginIdx;
-  // MaxR = RowEndIdx;
-  // MinC = ColBeginIdx;
-  // MaxC = ColEndIdx;
-  // MinL = MinRoutingLayConstraint->getIdx();
-  // MaxL = LayerSz;
   MinR = RowEndIdx;
   MaxR = RowBeginIdx;
   MinC = ColEndIdx;

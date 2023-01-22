@@ -231,8 +231,7 @@ std::unique_ptr<Input::Raw::Input> Parser::parse(std::istream &input) {
     if (buff == "MaxCellMove")
       MaxCellMove = parseMaxCellMove(input);
     else if (buff == "GGridBoundaryIdx")
-      std::tie(RowBeginIdx, ColBeginIdx, RowEndIdx, ColEndIdx) =
-          parseGGridBoundaryIdx(input);
+      std::tie(RowBeginIdx, ColBeginIdx, RowEndIdx, ColEndIdx) = parseGGridBoundaryIdx(input);
     else if (buff == "NumLayer")
       Layers = parseLayers(input);
     else if (buff == "NumNonDefaultSupplyGGrid")

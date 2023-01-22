@@ -9,11 +9,13 @@ namespace {
 std::unique_ptr<cell_move_router::Input::Processed::Input>
 readInput(int argc, char **argv) {
   cell_move_router::Parser Parser;
-  auto InputStreamPtr =
-      cell_move_router::InputStreamCreator().createInputStream(argc, argv);
+
+  // Read from raw input
+  auto InputStreamPtr = cell_move_router::InputStreamCreator().createInputStream(argc, argv);
   auto Input = Parser.parse(*InputStreamPtr);
-  return cell_move_router::Input::Processed::Input::createInput(
-      std::move(Input));
+  
+  // Create Processed Data Structure
+  return cell_move_router::Input::Processed::Input::createInput(std::move(Input));
 }
 
 void writeOutput(cell_move_router::Solver &Solver, int argc, char **argv) {
@@ -26,13 +28,15 @@ void writeOutput(cell_move_router::Solver &Solver, int argc, char **argv) {
 int main(int argc, char **argv) {
   GlobalTimer::initialTimerAndSetTimeLimit(std::chrono::seconds(55 * 60));
 
+  // 1. Input
   auto Input = readInput(argc, argv);
-
   cell_move_router::Solver Solver(Input.get());
+
+  // 2. P&R algorithm start here
   Solver.solve();
 
+  // 3. Output
   writeOutput(Solver, argc, argv);
-
   auto Timer = GlobalTimer::getInstance();
   std::cerr << Timer->getDuration<>().count() / 1e9 << " seconds\n";
   if (Timer->overTime()) {

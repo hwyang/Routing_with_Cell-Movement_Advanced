@@ -29,6 +29,7 @@ template <class CostTy> class Solver
 
     DisjoinSet ds;
 
+    // Propageta Wavefront in the whole graph constructed by boundary
     void SPFA(const std::unordered_set<size_t> &terminals)
     {
         auto N = G.getVertexNum();
@@ -56,13 +57,13 @@ template <class CostTy> class Solver
             auto v = q.front();
             q.pop_front();
             inqueue[v] = false;
-            for (auto eid : G.getAdjacencyList(v))
+            for (auto eid : G.getAdjacencyList(v)) // for neighbor of v
             {
                 const auto &edge = G.getEdge(eid);
                 const auto dual = edge.getDual(v);
                 if (dist[dual] > dist[v] + edge.cost)
                 {
-                    dist[dual] = dist[v] + edge.cost;
+                    dist[dual] = dist[v] + edge.cost; // relax edge cost
                     prev_eid[dual] = eid;
                     index[dual] = index[v];
                     if (!inqueue[dual])
@@ -78,17 +79,20 @@ template <class CostTy> class Solver
         }
     }
 
+    // CrossEdge: the edge that connecting two pins
     void calculateCrossEdge()
     {
         CrossEdge.clear();
         size_t eid = 0;
         for (const auto &edge : G.getEdges())
-        {
+        {   
+            // If this edge's two connecting vertex's index is different
             if (index[edge.v1] != index[edge.v2])
             {
                 if (index[edge.v1] != INVLID && index[edge.v2] != INVLID)
-                {
-                    CrossEdge.emplace_back(dist[edge.v1] + dist[edge.v2] + edge.cost, eid);
+                {   
+                    // Connecting wavefront intersection point
+                    CrossEdge.emplace_back(dist[edge.v1] + dist[edge.v2] + edge.cost, eid); 
                 }
             }
             ++eid;
@@ -98,7 +102,10 @@ template <class CostTy> class Solver
     bool Kruskal(const std::unordered_set<size_t> &terminals)
     {
         SelectKEdge.clear();
+        // sort crossedge in non-descending order
         std::sort(CrossEdge.begin(), CrossEdge.end());
+        // Disjoint Set
+        // Init set of each pin as containing itself only
         ds.init(G.getVertexNum(), terminals);
         size_t unionCnt = 0;
         for (const auto &TUS : CrossEdge)
@@ -106,13 +113,16 @@ template <class CostTy> class Solver
             size_t eid;
             std::tie(std::ignore, eid) = TUS;
             const auto &edge = G.getEdge(eid);
+            // if in different set
             if (!ds.same(index[edge.v1], index[edge.v2]))
             {
                 SelectKEdge.emplace_back(eid);
+                // union two disjoint set
                 ds.Union(index[edge.v1], index[edge.v2]);
                 ++unionCnt;
             }
         }
+        // all pins is in the same set
         return terminals.size() == unionCnt + 1;
     }
 
@@ -149,6 +159,7 @@ template <class CostTy> class Solver
     {
         SPFA(terminals);
         calculateCrossEdge();
+        // check all pins can be connected by cross edge
         if (!Kruskal(terminals))
             return nullptr;
         return edgeRecover();

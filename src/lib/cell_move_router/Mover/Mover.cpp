@@ -9,61 +9,10 @@ namespace Mover {
 void Mover::initalFreqMovedCell() {
   for (auto &Cell : InputPtr->getCellInsts()) {
     if (Cell.isMovable()) {
-      //if (GridManager.getCellVoltageArea(&Cell).size())
-        //for(auto &Coor : GridManager.getCellVoltageArea(&Cell))
-          //std::cout << "X:" << std::get<0>(GridManager.coordinateInv(Coor)) << " Y:" << std::get<1>(GridManager.coordinateInv(Coor));
-        //continue; // TODO: handle Cell in VoltageArea
       FreqMovedCell.emplace(&Cell, 0);
     }
   }
 }
-// bool Mover::add_and_route(const Input::Processed::CellInst *CellPtr, const int Row, const int Col, bool virtual_route) {
-//   GridManager.addCell(CellPtr, Row, Col);
-//   if (GridManager.isOverflow()) {
-//     GridManager.removeCell(CellPtr);
-//     return false;
-//   }
-//   Router::GraphApproxRouter GraphApproxRouter(&GridManager);
-//   std::vector<std::pair<const Input::Processed::Net *, std::pair<std::vector<cell_move_router::Input::Processed::Route>, long long> > > OriginRoutes;
-//   bool Accept = true;
-//   // long long original_cost_sum = 0;
-//   // long long final_cost_sum = 0;
-//   for (auto NetPtr : InputPtr->getRelativeNetsMap().at(CellPtr)) {
-//     auto &OriginRoute = GridManager.getNetRoutes()[NetPtr];
-//     // original_cost_sum += OriginRoute.second;
-//     auto Pair = GraphApproxRouter.singleNetRoute(NetPtr, OriginRoute.first);
-//     OriginRoutes.emplace_back(NetPtr, std::move(OriginRoute));
-//     if (Pair.second == false) {
-//       Accept = false;
-//       break;
-//     }
-//     auto Cost = GridManager.getRouteCost(NetPtr, Pair.first);
-//     // final_cost_sum += Cost;
-
-//     Input::Processed::Route::reduceRouteSegments(Pair.first);
-//     OriginRoute = {std::move(Pair.first), Cost};
-//     bool Overflow = GridManager.isOverflow();
-//     GridManager.addNet(NetPtr);
-//     assert(!GridManager.isOverflow());
-//   }
-//   // if(original_cost_sum <= final_cost_sum){
-//   //  std::cout << "rejected!" << '\n';
-//   //  Accept = false;
-//   // }
-//   if (Accept) {
-//     return true;
-//   }
-
-//   GridManager.getNetRoutes()[OriginRoutes.back().first] = std::move(OriginRoutes.back().second);
-//   OriginRoutes.pop_back();
-//   while (OriginRoutes.size()) {
-//     GridManager.removeNet(OriginRoutes.back().first);
-//     GridManager.getNetRoutes()[OriginRoutes.back().first] = std::move(OriginRoutes.back().second);
-//     OriginRoutes.pop_back();
-//   }
-//   GridManager.removeCell(CellPtr);
-//   return false;
-// }
 
 std::pair<long long, bool> Mover::add_and_route(const Input::Processed::CellInst *CellPtr, const int Row, const int Col, bool virtual_route) {
   GridManager.addCell(CellPtr, Row, Col);
@@ -107,29 +56,32 @@ std::pair<long long, bool> Mover::add_and_route(const Input::Processed::CellInst
   return {final_cost_sum, Accept};
 }
 
-
 void Mover::move(RegionCalculator::RegionCalculator &RC, std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::duration<long int, std::ratio<1, 1000000000> > > startTime) {
   std::vector<std::pair<long long, const Input::Processed::CellInst *>> CellNetLength;
+  // 1. Sort Cells for the order of cell movement (higher net cost first)
   for (auto &P : FreqMovedCell) {
     auto CellPtr = P.first;
     long long NetLength = 0;
     for (auto NetPtr : InputPtr->getRelativeNetsMap().at(CellPtr)) {
+      // 1.1 Cost of Cell Order, defined as its connected NetWeight * total_nets_cost(LayorFactor*NetWeight*NetLength)
       NetLength += GridManager.getNetRoutes()[NetPtr].second * NetPtr->getWeight();
-      // auto &OriginRoute = GridManager.getNetRoutes()[NetPtr].first;
-      // NetLength += GridManager.getRouteCost(NetPtr, OriginRoute ) * NetPtr->getNumPins();
-      // 
     }
     CellNetLength.emplace_back(NetLength, CellPtr);
   }
+  // 1.2 Sort Cells by Weighted Net Length (Higher Net Cost implies Critical Cell to Move First)
   std::sort(CellNetLength.begin(), CellNetLength.end(), std::greater<std::pair<long long, const Input::Processed::CellInst *>>());
   unsigned MoveCnt = 0;
+
+  // 2. Constructing Candidate Position (in sorted order)
   for (auto &P : CellNetLength) {
     auto CellPtr = P.second;
     int RowBeginIdx = 0, RowEndIdx = 0, ColBeginIdx = 0, ColEndIdx = 0;
+    // 2.1 Get this cell's optimal region (median of each connected nets)
     std::tie(RowBeginIdx, RowEndIdx, ColBeginIdx, ColEndIdx) = RC.getRegion(CellPtr);
     std::vector<std::pair<int, int>> CandidatePos;
     
-    if (GridManager.getCellVoltageArea(CellPtr).size()){ //if this cell has voltage constraint
+    // 2.2 Consider the case if this cell has Voltage Constraint
+    if (GridManager.getCellVoltageArea(CellPtr).size()){
       for (int R = RowBeginIdx; R <= RowEndIdx; ++R) {
         for (int C = ColBeginIdx; C <= ColEndIdx; ++C) {
           for(auto &Coor : GridManager.getCellVoltageArea(CellPtr)){
@@ -143,6 +95,8 @@ void Mover::move(RegionCalculator::RegionCalculator &RC, std::chrono::time_point
         }  
       }
     }
+
+    // 2.3 Consider the case if Cell does not have Voltage Constraint
     else{
       for (int R = RowBeginIdx; R <= RowEndIdx; ++R) {
         for (int C = ColBeginIdx; C <= ColEndIdx; ++C) {
@@ -150,15 +104,17 @@ void Mover::move(RegionCalculator::RegionCalculator &RC, std::chrono::time_point
         }
       }
     }
-    //flute
+
+    // 2.4 use FLUTE to estimate WL for situation after cell moved to each candidate position
     std::map<std::pair<int, int>, long long> Grid_to_WL;
     for (auto P : CandidatePos) {
-      //std::cout << "Candidate Pos:" << P.first << ' ' << P.second << '\n';
       long long total_WL = 0;
+      // 2.4.1 for all connected net
       for (auto NetPtr : InputPtr->getRelativeNetsMap().at(CellPtr)){
         std::vector<int> X;
         std::vector<int> Y;
-        for(auto &Pin : NetPtr->getPins()) { //pin vector
+        // 2.4.2 for all connected pin, add to a vector
+        for(auto &Pin : NetPtr->getPins()) {
           auto c = Pin.getInst();
           if(c == CellPtr) continue;
           int x = c->getGGridRowIdx();
@@ -166,28 +122,25 @@ void Mover::move(RegionCalculator::RegionCalculator &RC, std::chrono::time_point
           X.push_back(x);
           Y.push_back(y);
         }
-        
-        // std::cout << CellPtr->getGGridRowIdx() << '\n';
-        // std::cout << CellPtr->getGGridColIdx() << '\n';
-
-        // for(auto x : X) std::cout << x << ' ';
-        // std::cout << '\n';
-        // for(auto y : Y) std::cout << y << ' ';
-        // std::cout << '\n';
-        
+        // 2.4.3 Simulating that the cell is moved to this candidate position
         X.push_back(P.first);
         Y.push_back(P.second);
 
+        // 2.4.4 Call FLUTE
         auto Wrapper = Flute::FluteWrapper::getInstance();
         auto FluteTree = Wrapper->runFlute(X, Y);
-        //std::cout << FluteTree.getLength() << '\n';
+
+        // 2.4.5 Definition of Candidate_Region_Cost: FLUTE_Length * Net_Weight * Net_NumPins^2 (Net with More Pin is more impactful)
         total_WL += FluteTree.getLength() * NetPtr->getWeight() * pow(NetPtr->getNumPins(),2);
       }
+      // 2.4.6 Record this candidate position's resulting total WL
       Grid_to_WL[P] = total_WL;
     }
-    std::sort(CandidatePos.begin(), CandidatePos.end(), [&Grid_to_WL](std::pair<int, int> a, std::pair<int, int> b) {return Grid_to_WL[a] < Grid_to_WL[b]; }); //revised
-    //std::shuffle(CandidatePos.begin(), CandidatePos.end(), Random); //original version
+
+    // 2.5 Sorting each Candidate Position by Candidate_Region_Cost (Smaller Cost is better)
+    std::sort(CandidatePos.begin(), CandidatePos.end(), [&Grid_to_WL](std::pair<int, int> a, std::pair<int, int> b) {return Grid_to_WL[a] < Grid_to_WL[b]; });
     
+    // 2.6 Remove Cell and its connected nets
     auto OldCoord = GridManager.getCellCoordinate(CellPtr);
     {
       for (auto NetPtr : InputPtr->getRelativeNetsMap().at(CellPtr)) {
@@ -195,40 +148,36 @@ void Mover::move(RegionCalculator::RegionCalculator &RC, std::chrono::time_point
       }
       GridManager.removeCell(CellPtr);
     }
-    bool Success = false;
 
-    //Second Attempt of Sorting Candidate Position
-    // for (auto P : CandidatePos) {
-    //   auto tmp_result = add_and_route(CellPtr, P.first, P.second, true);
-    //   std::cout << "flute: " << Grid_to_WL[P] << " add_cost: " << 100 * (tmp_result.first / INT_MAX) << '\n';
-    //   Grid_to_WL[P] += 100 * (tmp_result.first / INT_MAX);
-    // }
-    //std::sort(CandidatePos.begin(), CandidatePos.end(), [&Grid_to_WL](std::pair<int, int> a, std::pair<int, int> b) {return Grid_to_WL[a] < Grid_to_WL[b]; }); //revised
-    //for(auto P : CandidatePos) std::cout << P.first << ' ' << P.second << ' ' << Grid_to_WL[P] << '\n';
-    
+    // 2.7 Add back cell and reroute
+    bool Success = false;
     for (auto P : CandidatePos) {
       if (add_and_route(CellPtr, P.first, P.second, false).second) {
         Success = true;
         break;
       }
     }
+
+    // 2.8.1 Succes
     if (Success)
       ++MoveCnt;
+    // 2.8.2 If failed add back as original 
     else {
       GridManager.addCell(CellPtr, OldCoord.first, OldCoord.second);
       for (auto NetPtr : InputPtr->getRelativeNetsMap().at(CellPtr)) {
         GridManager.addNet(NetPtr);
       }
     }
-    
-    auto endTime = std::chrono::high_resolution_clock::now();
+
+    // 2.9 Check the Max Cell Movement Constraint
     if (MoveCnt == InputPtr->getMaxCellMove()){
       std::cout << "MAX CELL MOVE\n";
       break;
     }
-    ////Timer
+
+    // 2.10 Check Timer
+    auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::duration<float>>(endTime - startTime);
-    //std::cout << "TIME: " << duration.count() << '\n';
     if(duration.count() > 3000.0) break;
   }
 }

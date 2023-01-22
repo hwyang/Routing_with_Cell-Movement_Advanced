@@ -23,6 +23,7 @@ public:
   long long getPowerFactor() const { return PowerFactor; }
   void to_ostream(std::ostream &out) const override;
 };
+
 class NonDefaultSupplyGGrid : Util::Outputable {
   const int RowIdx, ColIdx, LayIdx;
   const int IncrOrDecrValue;

@@ -121,76 +121,83 @@ void Route::to_ostream(std::ostream &out) const {
 
 void Route::reduceRouteSegments(std::vector<Route> &RouteSegments) {
   auto RouteSegmentCmp = [&](const Route &A, const Route &B) {
+    // Horizontal or Vertical or Via
     auto TA = A.getType(), TB = B.getType();
     if (TA != TB)
       return TA < TB;
     switch (TA) {
-    case Type::Horizontal: {
-      if (A.SLayIdx != B.SLayIdx)
-        return A.SLayIdx < B.SLayIdx;
-      if (A.SRowIdx != B.SRowIdx)
-        return A.SRowIdx < B.SRowIdx;
-      return A.SColIdx < B.SColIdx;
-    }
-    case Type::Vertical: {
-      if (A.SLayIdx != B.SLayIdx)
-        return A.SLayIdx < B.SLayIdx;
-      if (A.SColIdx != B.SColIdx)
+      case Type::Horizontal: {
+        if (A.SLayIdx != B.SLayIdx)
+          return A.SLayIdx < B.SLayIdx;
+        if (A.SRowIdx != B.SRowIdx)
+          return A.SRowIdx < B.SRowIdx;
         return A.SColIdx < B.SColIdx;
-      return A.SRowIdx < B.SRowIdx;
-    }
-    case Type::Via: {
-      if (A.SRowIdx != B.SRowIdx)
+      }
+      case Type::Vertical: {
+        if (A.SLayIdx != B.SLayIdx)
+          return A.SLayIdx < B.SLayIdx;
+        if (A.SColIdx != B.SColIdx)
+          return A.SColIdx < B.SColIdx;
         return A.SRowIdx < B.SRowIdx;
-      if (A.SColIdx != B.SColIdx)
-        return A.SColIdx < B.SColIdx;
-      return A.SLayIdx < B.SLayIdx;
-    }
-    default:
-      assert(false && "Error RouteSegment::Type!");
+      }
+      case Type::Via: {
+        if (A.SRowIdx != B.SRowIdx)
+          return A.SRowIdx < B.SRowIdx;
+        if (A.SColIdx != B.SColIdx)
+          return A.SColIdx < B.SColIdx;
+        return A.SLayIdx < B.SLayIdx;
+      }
+      default:
+        assert(false && "Error RouteSegment::Type!");
     }
   };
+
+  // Sort Routed Segment
   std::sort(RouteSegments.begin(), RouteSegments.end(), RouteSegmentCmp);
+
+  // Generate NewRouteSegments by RouteSegments
   std::vector<Route> NewRouteSegments;
   Route *CurRS = nullptr;
+  // For each RouteSegment
   for (auto &RS : RouteSegments) {
     bool NeedNewRS = false;
     auto Ty = RS.getType();
     if (CurRS == nullptr || Ty != CurRS->getType())
       NeedNewRS = true;
     else {
-      bool RowCmp = CurRS->SRowIdx == RS.SRowIdx;
-      bool ColCmp = CurRS->SColIdx == RS.SColIdx;
-      bool ViaCmp = CurRS->SLayIdx == RS.SLayIdx;
+      bool RowCmp = CurRS->SRowIdx == RS.SRowIdx; // Same Row Starting Index
+      bool ColCmp = CurRS->SColIdx == RS.SColIdx; // Same Col Starting Index
+      bool ViaCmp = CurRS->SLayIdx == RS.SLayIdx; // Same Lay Starting Index
+      if (RowCmp && ColCmp && ViaCmp) continue; // Identical Routing Segment
       switch (Ty) {
-      case Type::Horizontal: {
-        if (RowCmp && ViaCmp && CurRS->EColIdx == RS.SColIdx)
-          CurRS->EColIdx = RS.EColIdx;
-        else
+        case Type::Horizontal: { // If in Horizontal Layor
+          if (RowCmp && ViaCmp && CurRS->EColIdx == RS.SColIdx) // If Current Routing Segment's ending col position equals RS's starting col position
+            CurRS->EColIdx = RS.EColIdx; // We can Reduce Route Segment
+          else
+            NeedNewRS = true;
+          break;
+        }
+        case Type::Vertical: { // If in Vertical Layor
+          if (ColCmp && ViaCmp && CurRS->ERowIdx == RS.SRowIdx) // If Current Routing Segment's ending row position equals RS's starting row position
+            CurRS->ERowIdx = RS.ERowIdx; // We can Reduce Route Segment
+          else
+            NeedNewRS = true;
+          break;
+        }
+        case Type::Via: { // If Via
+          if (RowCmp && ColCmp && CurRS->ELayIdx == RS.SLayIdx) // If Current Routing Segment's ending layer position equals RS's starting layor position
+            CurRS->ELayIdx = RS.ELayIdx; // We can Reduce Route Segment
+          else
+            NeedNewRS = true;
+          break;
+        }
+        default:
           NeedNewRS = true;
-        break;
-      }
-      case Type::Vertical: {
-        if (ColCmp && ViaCmp && CurRS->ERowIdx == RS.SRowIdx)
-          CurRS->ERowIdx = RS.ERowIdx;
-        else
-          NeedNewRS = true;
-        break;
-      }
-      case Type::Via: {
-        if (RowCmp && ColCmp && CurRS->ELayIdx == RS.SLayIdx)
-          CurRS->ELayIdx = RS.ELayIdx;
-        else
-          NeedNewRS = true;
-        break;
-      }
-      default:
-        NeedNewRS = true;
       }
     }
     if (NeedNewRS) {
       if (CurRS)
-        NewRouteSegments.emplace_back(*CurRS);
+        NewRouteSegments.emplace_back(*CurRS); // Push Back Reduced Route Segment CurRS
       CurRS = &RS;
     }
   }
